@@ -15,22 +15,22 @@ alerts_webhook = os.getenv("ALERTS_WEBHOOK")
 daily_recap_webhook = os.getenv("DAILY_RECAPS_WEBHOOK")
 
 # Input slug
-SLUG = ("will-gamestop-acquire-ebay")
+slug = ("which-company-has-the-best-ai-model-end-of-september-20260717143435868")
 
 # Input target question if needed
-TARGET_QUESTION = None
+target_question = "Anthropic"
 
 # Input held position side
-POSITION_SIDE = "no"
+position_side = "yes"
 
 # Input buy price
-BUY_PRICE = 0.82
+buy_price = 0.82
 
 # Input sell target
-SELL_TARGET = 0.98
+sell_target = 0.98
 
 # Stop-loss threshold
-stop_loss_threshold = round((BUY_PRICE  * 0.50), 2)
+stop_loss_threshold = round((buy_price  * 0.30), 2) #Set at 30% of buy price
 print(f"The stop-loss threshold is set to ¢{stop_loss_threshold}")
 
 # Discord functions
@@ -63,15 +63,15 @@ def get_holder_profit(holders):
 
 def daily_recap():
     daily_recap_message = (
-        f"🔊 --- DAILY RECAP | [{SLUG.replace('-', ' ').title()}: {TARGET_QUESTION}] ---"
+        f"--- DAILY RECAP | [{slug.replace('-', ' ').title()}: {target_question}] ---"
     )
     send_market_summary(daily_recap_message)
 
     # Median PNL for yes/no holders
     ten_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data]))
     ten_no_median = round(statistics.median([h["PNL"] for h in ten_no_holders_data]))
-    three_yes_median = round(statistics.median([h["PNL"] for h in three_yes_holders_data]))
-    three_no_median = round(statistics.median([h["PNL"] for h in three_no_holders_data]))
+    three_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data[:3]])) #
+    three_no_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data[:3]]))
 
     # Text for top 3 yes/no holders
     y_top3_text = "\n".join([f"▫    {h['Name']}: ${h['PNL']:,.0f}" for h in ten_yes_holders_data[:3]])
@@ -81,69 +81,88 @@ def daily_recap():
     )
     send_market_summary(holders_message)
 
-COOLDOWN_TIME = 300
+COOLDOWN_TIME = 600
 pending_moves = {}
 last_checked = {}
+# Pings if one of the top 5 holders makes a move on the market
 def check_holder_moves(pending_moves, last_checked):
-    top_5_holders = ten_yes_holders_data[:5] + ten_no_holders_data[:5]
+    top_5_holders = safety_net(five_holders_url)
     now = time.time()
 
-    for holder in top_5_holders:
-        wallet = holder["ProxyWallet"]
-        name = holder["Name"]
-        start_ts = last_checked.get(wallet, int(now))
-        activity_url = (
-            f"https://data-api.polymarket.com/activity?user={wallet}&market={condition_id}&type=TRADE&start=1700000000&sortDirection=ASC"
-        )
-        print(activity_url)
-        holder_trades = (safety_net(activity_url))
-        time.sleep(1)
+    for data in top_5_holders:
+        for holder in data["holders"]:
+            wallet = holder["proxyWallet"]
+            name = holder["name"]
+            # Only reads trades from now and on
+            start_ts = last_checked.get(wallet, int(now))
+            activity_url = (
+                f"https://data-api.polymarket.com/activity?user={wallet}&market={condition_id}&type=TRADE&start={start_ts}&sortDirection=ASC"
+            )
+            holder_trades = (safety_net(activity_url))
+            time.sleep(1)
 
-        if not holder_trades:
-            continue
-        for trade in holder_trades:
-            #if trade["timestamp"] <= last_checked.get(wallet, 0):
-                #continue
-
-            if wallet not in pending_moves:
-                pending_moves[wallet] = {
-                    "Name": name,
-                    "Side": trade["side"],
-                    "Outcome": trade["outcome"],
-                    "Price": trade["price"],
-                    "Size": 0,
-                    "usdcSize": 0,
-                    "Timestamp": trade["timestamp"]
-                }
-            #Change to trade["side"] != pending_moves after done testing
-            print("TEST gest here")
-            if trade["side"] == pending_moves[wallet]["Side"] or trade["outcome"] != pending_moves[wallet]["Outcome"]:
-                print("TEST: Side change triggered")
-                flush_moves(wallet)
+            if not holder_trades:
                 continue
-            if now - pending_moves[wallet]["Timestamp"] >= COOLDOWN_TIME:
-                print("TEST: Timestamp triggered")
-                flush_moves(wallet)
-                continue
+            for trade in holder_trades:
+                # Skip if trade is older than last checked trade
+                if trade["timestamp"] < last_checked.get(wallet, 0):
+                    continue
 
-            #STILL NEED TO ADD PING FOR TRADE AND FIX UP ALL YOU HAVE DONE IS GOT THESE TWO IF'S TO TRIGGER PROPERLY
-            pending_moves[wallet]["usdcSize"] += trade["usdcSize"]
-            pending_moves[wallet]["Size"] += trade["size"]
-            pending_moves[wallet]["Timestamp"] = trade["timestamp"]
-            pending_moves[wallet]["Outcome"] = trade["outcome"]
-            pending_moves[wallet]["Side"] = trade["side"]
-            last_checked[wallet] = pending_moves[wallet]["Timestamp"]
+                if wallet not in pending_moves:
+                    pending_moves[wallet] = {
+                        "Name": name,
+                        "Side": trade["side"],
+                        "Outcome": trade["outcome"],
+                        "Price": trade["price"],
+                        "Size": holder["amount"],
+                        "usdcSize": 0,
+                        "Timestamp": trade["timestamp"]
+                    }
+                    # Estimating holder dollar amount held
+                    if holder["outcomeIndex"] == 0:
+                        pending_moves[wallet]["usdcSize"] += (yes_price * pending_moves[wallet]["Size"])
+                    elif holder["outcomeIndex"] == 1:
+                        pending_moves[wallet]["usdcSize"] += (no_price * pending_moves[wallet]["Size"])
 
-            print("Last checked: ", last_checked[wallet])
-            print(pending_moves[wallet]["Name"])
-            #print(last_checked)
+                if trade["side"] != pending_moves[wallet]["Side"] or trade["outcome"] != pending_moves[wallet]["Outcome"]:
+                    pending_moves, last_checked = flush_moves(wallet, trade)
+                    continue
+                # Pings after 10min of trade silence
+                if trade["timestamp"] - pending_moves[wallet]["Timestamp"] >= COOLDOWN_TIME:
+                    pending_moves, last_checked = flush_moves(wallet, trade)
+                    continue
+
+                pending_moves[wallet]["usdcSize"] += trade["usdcSize"]
+                pending_moves[wallet]["Size"] += trade["size"]
+                pending_moves[wallet]["Timestamp"] = trade["timestamp"]
+                pending_moves[wallet]["Outcome"] = trade["outcome"]
+                pending_moves[wallet]["Side"] = trade["side"]
+                last_checked[wallet] = pending_moves[wallet]["Timestamp"]
+
     return pending_moves, last_checked
 
-def flush_moves(wallet):
-    flush_holder_message = (f"{pending_moves[wallet]['Name']} has sold ${pending_moves[wallet]['usdcSize']:.0f} of the {pending_moves[wallet]['Outcome']} side")
+def flush_moves(wallet, trade):
+    move = pending_moves[wallet]
+    action = "bought" if move["Side"] == "BUY" else "sold"
+    flush_holder_message = (f"🔊 Market Move: {pending_moves[wallet]['Name']} has {action} ${pending_moves[wallet]['usdcSize']:.0f} ({pending_moves[wallet]['Size']:.0f} Shares), of the {pending_moves[wallet]['Outcome']} side at ¢{(trade['price'] * 100):.0f}. \nMarket Link: {market_link}")
+    send_alert(f"🔊 ALERT: A top 5 holder has made a move. Check the market-summary tab for more info.")
+    send_market_summary(flush_holder_message)
     print(flush_holder_message)
 
-#FIX RATE LIMITING AND ADD PROGRAM CRASH IF HAS MULTIPLE CONSECUTIVE FAILURES
+    pending_moves[wallet] = {
+        "Name": pending_moves[wallet]["Name"],
+        "Side": trade["side"],
+        "Outcome": trade["outcome"],
+        "Price": trade["price"],
+        "Size": trade["size"],
+        "usdcSize": trade["usdcSize"],
+        "Timestamp": trade["timestamp"]
+    }
+
+    last_checked[wallet] = trade["timestamp"]
+
+    return pending_moves, last_checked
+
 def safety_net(url, retries=3, backoff=2 ):
     for attempt in range(retries):
         try:
@@ -168,21 +187,22 @@ def safety_net(url, retries=3, backoff=2 ):
             return None
 
 # Pull market data
-url = f"https://gamma-api.polymarket.com/events?slug={SLUG}"
+url = f"https://gamma-api.polymarket.com/events?slug={slug}"
 event_data = safety_net(url)
 for market in event_data[0]["markets"]:
-    if TARGET_QUESTION is None or TARGET_QUESTION in market["question"]:
-        print("Market Data:", market)
+    if target_question is None or target_question in market["question"]:
+        print(f"{slug} Market Data: {market}")
         # Saving start data
-        market_link = (f"https://polymarket.com/event/{SLUG}")
+        market_link = (f"https://polymarket.com/event/{slug}")
         condition_id = market["conditionId"]
         ten_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=10&offset=0"
+        five_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=5&offset=0"
         three_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=3&offset=0"
         end_date_raw = (market["endDate"])
         end_date = datetime.strptime(end_date_raw, "%Y-%m-%dT%H:%M:%SZ").date()
         resolution_status = ((market["umaResolutionStatuses"]).strip('[""]'))
 
-        startup_message = f"⌚ --- STARTUP | Now watching [{SLUG.replace('-', ' ').title()}: {TARGET_QUESTION}] ---\nMarket Link: {market_link}\n"
+        startup_message = f"⌚ --- STARTUP | Now watching [{slug.replace('-', ' ').title()}: {target_question}] ---\nMarket Link: {market_link}\n"
         send_alert(startup_message)
 
         # Saving start prices
@@ -210,7 +230,7 @@ for market in event_data[0]["markets"]:
             print(f"liquidity: {liquidity}")
             print(f"volume24hr: {volume24hr}")
 
-            if liquidity < 50000:
+            if liquidity < 30000:
                 send_alert(
                     f"⚠ WARNING: The liquidity is low (${liquidity}). Orderbook cannot absorb big orders without price moving.")
             if volume24hr < 10000 and volume24hr > 0:
@@ -227,7 +247,7 @@ for market in event_data[0]["markets"]:
             event_data = (safety_net(url))
             # Tracking just target question only when needed
             for m in event_data[0]["markets"]:
-                if TARGET_QUESTION is None or TARGET_QUESTION in m["question"]:
+                if target_question is None or target_question in m["question"]:
                     market = m
 
             # Repeated program start for loop
@@ -248,10 +268,10 @@ for market in event_data[0]["markets"]:
                 resolution_status_alerted.append(resolution_status)
 
             # Sell target / Stop loss alerts
-            if POSITION_SIDE == "no":
-                if no_price >= SELL_TARGET and not sell_target_pinged:
+            if position_side == "no":
+                if no_price >= sell_target and not sell_target_pinged:
                     sell_target_message = (
-                        f"🚨 ALERT: The No side has reached your sell target. Sell Target: {SELL_TARGET} | No Price: ¢{no_price * 100}\nMarket Link: {market_link}"
+                        f"🚨 ALERT: The No side has reached your sell target. Sell Target: {sell_target} | No Price: ¢{no_price * 100}\nMarket Link: {market_link}"
                     )
                     send_alert(sell_target_message)
                     sell_target_pinged = True
@@ -263,10 +283,10 @@ for market in event_data[0]["markets"]:
                     send_alert(stop_loss_message)
                     stop_loss_pinged = True
 
-            elif POSITION_SIDE == "yes":
-                if yes_price >= SELL_TARGET and not sell_target_pinged:
+            elif position_side == "yes":
+                if yes_price >= sell_target and not sell_target_pinged:
                     sell_target_message = (
-                        f"🚨 ALERT: The Yes side has reached your sell target. Sell Target: {SELL_TARGET} | Yes Price: ¢{yes_price * 100}\nMarket Link: {market_link}"
+                        f"🚨 ALERT: The Yes side has reached your sell target. Sell Target: {sell_target} | Yes Price: ¢{yes_price * 100}\nMarket Link: {market_link}"
                     )
                     send_alert(sell_target_message)
                     sell_target_pinged = True
@@ -285,15 +305,16 @@ for market in event_data[0]["markets"]:
                 send_alert(sell_target_message)
 
             # Tresholds to loop through
-            thresholds = [0.01, 0.025, 0.05, 0.10, 0.15, 0.20, 0.25]
+            thresholds = [0.025, 0.05, 0.075, 0.10, 0.125, 0.15, 0.175, 0.20]
             # Looping through given thresholds
             for threshold in thresholds:
                 if threshold in price_alerted:
                     continue
                     # Checks for shift and sends alert
                 if current_price <= (daily_start_price - threshold) or current_price >= (daily_start_price + threshold):
+                    price_action = ("up" if current_price >= (daily_start_price + threshold) else "down")
                     alert_message = (
-                        f"🔊 ALERT: The price has shifted {threshold * 100}¢ since midnight.")
+                        f"🔊 ALERT: The price has shifted {price_action} ¢{threshold * 100} since midnight.")
                     price_message = (
                         f"📊 The current prices are [Yes_price: ¢{yes_price * 100} | No_price: ¢{no_price * 100}]\nMarket Link: {market_link}")
                     price_alerted.append(threshold)
@@ -305,7 +326,7 @@ for market in event_data[0]["markets"]:
             if date_today != last_run_date:
                 # Holders PNL variables
                 ten_holders_data = (safety_net(ten_holders_url))
-                three_holders_data = (safety_net(three_holders_url))
+                three_holders_data = (ten_holders_data[:3])
                 ten_yes_holders_data = get_holder_profit(ten_holders_data[0]["holders"])
                 ten_no_holders_data = get_holder_profit(ten_holders_data[1]["holders"])
                 three_yes_holders_data = get_holder_profit(three_holders_data[0]["holders"])
@@ -315,8 +336,8 @@ for market in event_data[0]["markets"]:
                 # Midnight variables to reset
                 price_alerted = []
                 last_run_date = date_today
-                sell_target_hit = False
-                stop_loss_hit = False
+                sell_target_pinged = False
+                stop_loss_pinged = False
                 daily_start_price = float(yes_price)
 
             # Top holders trade watch
@@ -326,7 +347,7 @@ for market in event_data[0]["markets"]:
             days_remaining = (end_date - date_today).days
             if days_remaining in (7, 3, 1) and days_remaining not in days_till_resolution_alerted:
                 resolution_days_message = (
-                    f"⏳ ALERT: Market resolves in {days_remaining} days.\nMarket Link: {market_link}"
+                    f"⏳ WARNING: Market resolves in {days_remaining} days.\nMarket Link: {market_link}"
                 )
                 send_alert(resolution_days_message)
                 days_till_resolution_alerted.append(days_remaining)
