@@ -15,7 +15,7 @@ alerts_webhook = os.getenv("ALERTS_WEBHOOK")
 daily_recap_webhook = os.getenv("DAILY_RECAPS_WEBHOOK")
 
 # Input slug
-slug = ("which-company-has-the-best-ai-model-end-of-september-20260717143435868")
+slug = "which-company-has-the-best-ai-model-end-of-september-20260717143435868"
 
 # Input target question if needed
 target_question = "Anthropic"
