@@ -70,8 +70,8 @@ def daily_recap():
     # Median PNL for yes/no holders
     ten_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data]))
     ten_no_median = round(statistics.median([h["PNL"] for h in ten_no_holders_data]))
-    three_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data[:3]])) #
-    three_no_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data[:3]]))
+    three_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data[:3]]))
+    three_no_median = round(statistics.median([h["PNL"] for h in ten_no_holders_data[:3]]))
 
     # Text for top 3 yes/no holders
     y_top3_text = "\n".join([f"▫    {h['Name']}: ${h['PNL']:,.0f}" for h in ten_yes_holders_data[:3]])
@@ -259,7 +259,7 @@ for market in event_data[0]["markets"]:
             resolution_status = ((market["umaResolutionStatuses"]).strip('[""]'))
 
             # Resolution status alert
-            if (resolution_status == ("proposed") or resolution_status == ("disputed")) and (resolution_status not in resolution_status_alerted):
+            if (resolution_status == "proposed" or resolution_status == "disputed") and (resolution_status not in resolution_status_alerted):
                 resolution_status_message = (
                     f"🚨 ALERT: The market resolution has been {resolution_status}.\nMarket Link: {market_link}"
                 )
@@ -304,8 +304,8 @@ for market in event_data[0]["markets"]:
                 )
                 send_alert(sell_target_message)
 
-            # Tresholds to loop through
-            thresholds = [0.025, 0.05, 0.075, 0.10, 0.125, 0.15, 0.175, 0.20]
+            # Thresholds to loop through
+            thresholds = [0.025, 0.05, 0.075, 0.10, 0.125, 0.15, 0.20, 0.25]
             # Looping through given thresholds
             for threshold in thresholds:
                 if threshold in price_alerted:
