@@ -15,7 +15,7 @@ alerts_webhook = os.getenv("ALERTS_WEBHOOK")
 daily_recap_webhook = os.getenv("DAILY_RECAPS_WEBHOOK")
 
 # Input slug
-slug = "which-company-has-the-best-ai-model-end-of-september-20260717143435868"
+slug = "which-company-has-best-ai-model-end-of-2026"
 
 # Input target question if needed
 target_question = "Anthropic"
@@ -24,7 +24,7 @@ target_question = "Anthropic"
 position_side = "yes"
 
 # Input buy price
-buy_price = 0.82
+buy_price = 0.67
 
 # Input sell target
 sell_target = 0.98
@@ -249,6 +249,7 @@ for market in event_data[0]["markets"]:
             for m in event_data[0]["markets"]:
                 if target_question is None or target_question in m["question"]:
                     market = m
+                    break
 
             # Repeated program start for loop
             outcomePrices_raw = (market["outcomePrices"])
@@ -312,9 +313,16 @@ for market in event_data[0]["markets"]:
                     continue
                     # Checks for shift and sends alert
                 if current_price <= (daily_start_price - threshold) or current_price >= (daily_start_price + threshold):
-                    price_action = ("up" if current_price >= (daily_start_price + threshold) else "down")
+                    if current_price >= (daily_start_price + threshold):
+                        price_action = "up"
+                        price_action_emoji = "📈"
+                        price_action_symbol = "+"
+                    else:
+                        price_action = "down"
+                        price_action_emoji = "📉"
+                        price_action_symbol = "-"
                     alert_message = (
-                        f"🔊 ALERT: The price has shifted {price_action} ¢{threshold * 100} since midnight.")
+                        f"{price_action_emoji} ALERT: The price has shifted {price_action} {price_action_symbol}¢{threshold * 100} since Midnight.")
                     price_message = (
                         f"📊 The current prices are [Yes_price: ¢{yes_price * 100} | No_price: ¢{no_price * 100}]\nMarket Link: {market_link}")
                     price_alerted.append(threshold)
