@@ -24,14 +24,14 @@ target_question = "Anthropic"
 position_side = "yes"
 
 # Input buy price
-buy_price = 0.67
+buy_price = 0.70
 
 # Input sell target
 sell_target = 0.98
 
 # Stop-loss threshold
-stop_loss_threshold = round((buy_price  * 0.30), 2) #Set at 30% of buy price
-print(f"The stop-loss threshold is set to ¢{stop_loss_threshold}")
+stop_loss_threshold = round((buy_price  * 0.60), 2) #Set at 60% of buy price
+print(f"The stop-loss threshold is set to ¢{stop_loss_threshold * 100}")
 
 # Discord functions
 def send_alert(message):
@@ -45,7 +45,7 @@ def send_market_summary(message):
 
 def get_holder_profit(holders):
     holders_dict = []
-    # Fetch each holders all-time PNL from the PNL API
+    # Fetch each holder all-time PNL from the PNL API
     for holder in holders:
         proxy_wallet = holder["proxyWallet"]
         name = holder["name"]
@@ -58,7 +58,6 @@ def get_holder_profit(holders):
 
         last_profit = holder_profit_data[-1]["p"]
         holders_dict.append({"Name": name, "PNL": last_profit, "ProxyWallet": proxy_wallet})
-        time.sleep(2)
     return holders_dict
 
 def daily_recap():
@@ -77,7 +76,7 @@ def daily_recap():
     y_top3_text = "\n".join([f"▫    {h['Name']}: ${h['PNL']:,.0f}" for h in ten_yes_holders_data[:3]])
     n_top3_text = "\n".join([f"▫    {h['Name']}: ${h['PNL']:,.0f}" for h in ten_no_holders_data[:3]])
     holders_message = (
-        f"💵Top 10 Yes holders median PNL: ${ten_yes_median:,.0f}\n🥉Top 3 Yes holders median PNL: ${three_yes_median:,.0f}\n{y_top3_text}\n\n💵Top 10 No holders median PNL: ${ten_no_median:,.0f}\n🥉Top 3 No holders median PNL: ${three_no_median:,.0f}\n{n_top3_text}"
+        f"💵Top 10 Yes holders median PNL: ${ten_yes_median:,.0f}\n🥉Top 3 Yes holders PNL: \n{y_top3_text}\n\n💵Top 10 No holders median PNL: ${ten_no_median:,.0f}\n🥉Top 3 No holders PNL: \n{n_top3_text}"
     )
     send_market_summary(holders_message)
 
@@ -99,7 +98,7 @@ def check_holder_moves(pending_moves, last_checked):
                 f"https://data-api.polymarket.com/activity?user={wallet}&market={condition_id}&type=TRADE&start={start_ts}&sortDirection=ASC"
             )
             holder_trades = (safety_net(activity_url))
-            time.sleep(1)
+            time.sleep(3)
 
             if not holder_trades:
                 continue
@@ -144,7 +143,7 @@ def check_holder_moves(pending_moves, last_checked):
 def flush_moves(wallet, trade):
     move = pending_moves[wallet]
     action = "bought" if move["Side"] == "BUY" else "sold"
-    flush_holder_message = (f"🔊 Market Move: {pending_moves[wallet]['Name']} has {action} ${pending_moves[wallet]['usdcSize']:.0f} ({pending_moves[wallet]['Size']:.0f} Shares), of the {pending_moves[wallet]['Outcome']} side at ¢{(trade['price'] * 100):.0f}. \nMarket Link: {market_link}")
+    flush_holder_message = f"🔊 Market Move: {pending_moves[wallet]['Name']} has {action} ${pending_moves[wallet]['usdcSize']:.0f} ({pending_moves[wallet]['Size']:.0f} Shares), of the {pending_moves[wallet]['Outcome']} side at ¢{(trade['price'] * 100):.0f}. \nMarket Link: {market_link}"
     send_alert(f"🔊 ALERT: A top 5 holder has made a move. Check the market-summary tab for more info.")
     send_market_summary(flush_holder_message)
     print(flush_holder_message)
@@ -163,7 +162,7 @@ def flush_moves(wallet, trade):
 
     return pending_moves, last_checked
 
-def safety_net(url, retries=3, backoff=2 ):
+def safety_net(url, retries=3, backoff=3 ):
     for attempt in range(retries):
         try:
             response = requests.get(url, timeout=10)
@@ -172,9 +171,11 @@ def safety_net(url, retries=3, backoff=2 ):
 
         except requests.exceptions.RequestException as e:
             if attempt < retries - 1:
-                print(f"API call retry attempt {attempt + 1}")
-                time.sleep(backoff * (attempt + 1))
+                if attempt > 0:
+                    print(f"API Error: {e} | API call retry attempt {attempt + 1}")
+                time.sleep(backoff * ((attempt + 1) * 2))
                 continue
+
             api_fail_message = (f"🛑WARNING: API call failed for {url}: {repr(e)}")
             print(api_fail_message)
             send_alert(api_fail_message)
@@ -230,10 +231,11 @@ for market in event_data[0]["markets"]:
             print(f"liquidity: {liquidity}")
             print(f"volume24hr: {volume24hr}")
 
-            if liquidity < 30000:
+            if liquidity < 15000:
                 send_alert(
                     f"⚠ WARNING: The liquidity is low (${liquidity}). Orderbook cannot absorb big orders without price moving.")
-            if volume24hr < 10000 and volume24hr > 0:
+                #right now only calculates shares should change to calculate $ amount
+            if volume24hr < 3500 and volume24hr > 0:
                 send_alert(
                     f"⚠ WARNING: The 24hr volume is low ({volume24hr} Shares). Market might not reflect current sentiment.")
 
@@ -322,7 +324,7 @@ for market in event_data[0]["markets"]:
                         price_action_emoji = "📉"
                         price_action_symbol = "-"
                     alert_message = (
-                        f"{price_action_emoji} ALERT: The price has shifted {price_action} {price_action_symbol}¢{threshold * 100} since Midnight.")
+                        f"{price_action_emoji} ALERT: The market is {price_action} {price_action_symbol}¢{threshold * 100} ({price_action_symbol}%{((threshold * 100) / daily_start_price):.2f}) today.")
                     price_message = (
                         f"📊 The current prices are [Yes_price: ¢{yes_price * 100} | No_price: ¢{no_price * 100}]\nMarket Link: {market_link}")
                     price_alerted.append(threshold)
