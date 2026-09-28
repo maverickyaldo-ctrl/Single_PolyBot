@@ -5,10 +5,9 @@ import json
 import time
 from datetime import datetime, date
 import statistics
-# Console text upgrades
-bold_green = '\033[1;32m'
-bold = '\033[1m'
-reset = '\033[0m'
+# Discord text upgrades
+line_space = "\n\u200b"
+
 # Program start
 load_dotenv()
 alerts_webhook = os.getenv("ALERTS_WEBHOOK")
@@ -61,24 +60,32 @@ def get_holder_profit(holders):
     return holders_dict
 
 def daily_recap():
-    daily_recap_message = (
+    daily_market_message = (
         f"--- DAILY RECAP | [{slug.replace('-', ' ').title()}: {target_question}] ---"
     )
-    send_market_summary(daily_recap_message)
+    send_market_summary(daily_market_message + line_space)
+    send_market_summary("-- Holder PNL Info --")
 
     # Median PNL for yes/no holders
     ten_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data]))
     ten_no_median = round(statistics.median([h["PNL"] for h in ten_no_holders_data]))
-    three_yes_median = round(statistics.median([h["PNL"] for h in ten_yes_holders_data[:3]]))
-    three_no_median = round(statistics.median([h["PNL"] for h in ten_no_holders_data[:3]]))
 
     # Text for top 3 yes/no holders
     y_top3_text = "\n".join([f"▫    {h['Name']}: ${h['PNL']:,.0f}" for h in ten_yes_holders_data[:3]])
     n_top3_text = "\n".join([f"▫    {h['Name']}: ${h['PNL']:,.0f}" for h in ten_no_holders_data[:3]])
-    holders_message = (
+    daily_holders_message = (
         f"💵Top 10 Yes holders median PNL: ${ten_yes_median:,.0f}\n🥉Top 3 Yes holders PNL: \n{y_top3_text}\n\n💵Top 10 No holders median PNL: ${ten_no_median:,.0f}\n🥉Top 3 No holders PNL: \n{n_top3_text}"
     )
-    send_market_summary(holders_message)
+    send_market_summary(daily_holders_message + line_space)
+
+    send_market_summary("-- Personal PNL Info --")
+    total_percent_change = ((current_price if position_side == 'yes' else current_no_price) - buy_price) / buy_price * 100
+    if not price_alerted:
+        daily_pnl_message = f"📈Today's percent change: +0%"
+    else:
+        daily_pnl_message = f"{price_action_emoji}Today's percent change: {price_action_symbol}{daily_percent_change:.2f}%"
+    total_pnl_change = f"{('📈' if total_percent_change >= 0 else '📉')}Total percent change: {'+' if total_percent_change >= 0 else '-'}{total_percent_change:.2f}%"
+    send_market_summary(f"{daily_pnl_message}\n{total_pnl_change}" + line_space)
 
 COOLDOWN_TIME = 600
 pending_moves = {}
@@ -98,7 +105,7 @@ def check_holder_moves(pending_moves, last_checked):
                 f"https://data-api.polymarket.com/activity?user={wallet}&market={condition_id}&type=TRADE&start={start_ts}&sortDirection=ASC"
             )
             holder_trades = (safety_net(activity_url))
-            time.sleep(3)
+            time.sleep(2)
 
             if not holder_trades:
                 continue
@@ -198,7 +205,6 @@ for market in event_data[0]["markets"]:
         condition_id = market["conditionId"]
         ten_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=10&offset=0"
         five_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=5&offset=0"
-        three_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=3&offset=0"
         end_date_raw = (market["endDate"])
         end_date = datetime.strptime(end_date_raw, "%Y-%m-%dT%H:%M:%SZ").date()
         resolution_status = ((market["umaResolutionStatuses"]).strip('[""]'))
@@ -231,11 +237,11 @@ for market in event_data[0]["markets"]:
             print(f"liquidity: {liquidity}")
             print(f"volume24hr: {volume24hr}")
 
-            if liquidity < 15000:
+            if liquidity < 25000:
                 send_alert(
                     f"⚠ WARNING: The liquidity is low (${liquidity}). Orderbook cannot absorb big orders without price moving.")
                 #right now only calculates shares should change to calculate $ amount
-            if volume24hr < 3500 and volume24hr > 0:
+            if 0 < volume24hr < 2500:
                 send_alert(
                     f"⚠ WARNING: The 24hr volume is low ({volume24hr} Shares). Market might not reflect current sentiment.")
 
@@ -259,7 +265,8 @@ for market in event_data[0]["markets"]:
             yes_price = float(outcomePrices[0])
             no_price = float(outcomePrices[1])
             current_price = float(yes_price)
-            resolution_status = ((market["umaResolutionStatuses"]).strip('[""]'))
+            current_no_price = float(no_price)
+            resolution_status = ((market["umaResolutionStatuses"]).strip(' [""]'))
 
             # Resolution status alert
             if (resolution_status == "proposed" or resolution_status == "disputed") and (resolution_status not in resolution_status_alerted):
@@ -315,6 +322,7 @@ for market in event_data[0]["markets"]:
                     continue
                     # Checks for shift and sends alert
                 if current_price <= (daily_start_price - threshold) or current_price >= (daily_start_price + threshold):
+                    daily_percent_change = (threshold / daily_start_price) * 100
                     if current_price >= (daily_start_price + threshold):
                         price_action = "up"
                         price_action_emoji = "📈"
@@ -324,7 +332,7 @@ for market in event_data[0]["markets"]:
                         price_action_emoji = "📉"
                         price_action_symbol = "-"
                     alert_message = (
-                        f"{price_action_emoji} ALERT: The market is {price_action} {price_action_symbol}¢{threshold * 100} ({price_action_symbol}%{((threshold * 100) / daily_start_price):.2f}) today.")
+                        f"{price_action_emoji} ALERT: The market is {price_action} {price_action_symbol}¢{threshold * 100} ({price_action_symbol}{daily_percent_change:.2f}%) today.")
                     price_message = (
                         f"📊 The current prices are [Yes_price: ¢{yes_price * 100} | No_price: ¢{no_price * 100}]\nMarket Link: {market_link}")
                     price_alerted.append(threshold)
@@ -339,8 +347,6 @@ for market in event_data[0]["markets"]:
                 three_holders_data = (ten_holders_data[:3])
                 ten_yes_holders_data = get_holder_profit(ten_holders_data[0]["holders"])
                 ten_no_holders_data = get_holder_profit(ten_holders_data[1]["holders"])
-                three_yes_holders_data = get_holder_profit(three_holders_data[0]["holders"])
-                three_no_holders_data = get_holder_profit(three_holders_data[1]["holders"])
 
                 daily_recap()
                 # Midnight variables to reset
