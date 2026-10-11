@@ -29,7 +29,7 @@ buy_price = 0.70
 sell_target = 0.98
 
 # Stop-loss threshold
-stop_loss_threshold = round((buy_price  * 0.60), 2) #Set at 60% of buy price
+stop_loss_threshold = round((buy_price  * 0.70), 4) #Set at 70% of buy price
 print(f"The stop-loss threshold is set to ¢{stop_loss_threshold * 100}")
 
 # Discord functions
@@ -40,7 +40,6 @@ def send_alert(message):
 def send_market_summary(message):
     data = {"content": message}
     requests.post(daily_recap_webhook, json=data)
-    print("Sent Market Summary")
 
 def get_holder_profit(holders):
     holders_dict = []
@@ -61,7 +60,7 @@ def get_holder_profit(holders):
 
 def daily_recap():
     daily_market_message = (
-        f"--- DAILY RECAP | [{slug.replace('-', ' ').title()}: {target_question}] ---"
+        f"DAILY RECAP | [{slug.replace('-', ' ').title()}: {target_question}]"
     )
     send_market_summary(daily_market_message + line_space)
     send_market_summary("-- Holder PNL Info --")
@@ -81,11 +80,12 @@ def daily_recap():
     send_market_summary("-- Personal PNL Info --")
     total_percent_change = ((current_price if position_side == 'yes' else current_no_price) - buy_price) / buy_price * 100
     if not price_alerted:
-        daily_pnl_message = f"📈Today's percent change: +0%"
+        daily_pnl_message = f"📈Today's percent change: +0.00%"
     else:
         daily_pnl_message = f"{price_action_emoji}Today's percent change: {price_action_symbol}{daily_percent_change:.2f}%"
-    total_pnl_change = f"{('📈' if total_percent_change >= 0 else '📉')}Total percent change: {'+' if total_percent_change >= 0 else '-'}{total_percent_change:.2f}%"
+    total_pnl_change = f"{('📈' if total_percent_change >= 0 else '📉')}Total percent change: {total_percent_change:+.2f}%"
     send_market_summary(f"{daily_pnl_message}\n{total_pnl_change}" + line_space)
+    print("Sent Market Summary")
 
 COOLDOWN_TIME = 600
 pending_moves = {}
@@ -150,7 +150,7 @@ def check_holder_moves(pending_moves, last_checked):
 def flush_moves(wallet, trade):
     move = pending_moves[wallet]
     action = "bought" if move["Side"] == "BUY" else "sold"
-    flush_holder_message = f"🔊 Market Move: {pending_moves[wallet]['Name']} has {action} ${pending_moves[wallet]['usdcSize']:.0f} ({pending_moves[wallet]['Size']:.0f} Shares), of the {pending_moves[wallet]['Outcome']} side at ¢{(trade['price'] * 100):.0f}. \nMarket Link: {market_link}"
+    flush_holder_message = f"🔊 Market Move: {pending_moves[wallet]['Name']} has {action} ${pending_moves[wallet]['usdcSize']:.0f} ({pending_moves[wallet]['Size']:.0f} Shares), of the {pending_moves[wallet]['Outcome']} side at ¢{(trade['price'] * 100):.0f}."
     send_alert(f"🔊 ALERT: A top 5 holder has made a move. Check the market-summary tab for more info.")
     send_market_summary(flush_holder_message)
     print(flush_holder_message)
@@ -179,17 +179,17 @@ def safety_net(url, retries=3, backoff=3 ):
         except requests.exceptions.RequestException as e:
             if attempt < retries - 1:
                 if attempt > 0:
-                    print(f"API Error: {e} | API call retry attempt {attempt + 1}")
+                    print(f"API Error: API call retry attempt {attempt + 1} | {e}")
                 time.sleep(backoff * ((attempt + 1) * 2))
                 continue
 
-            api_fail_message = (f"🛑WARNING: API call failed for {url}: {repr(e)}")
+            api_fail_message = f"🛑WARNING: API call failed for {url}: {repr(e)}"
             print(api_fail_message)
             send_alert(api_fail_message)
             return None
 
         except json.JSONDecodeError as e:
-            json_fail_message = (f"🛑WARNING: Got a response but couldn't parse it as JSON for {url}: {e}")
+            json_fail_message = f"🛑WARNING: Got a response but couldn't parse it as JSON for {url}: {e}"
             print(json_fail_message)
             send_alert(json_fail_message)
             return None
@@ -199,9 +199,9 @@ url = f"https://gamma-api.polymarket.com/events?slug={slug}"
 event_data = safety_net(url)
 for market in event_data[0]["markets"]:
     if target_question is None or target_question in market["question"]:
-        print(f"{slug} Market Data: {market}")
+        print(f"{slug} | Market Data: {market}")
         # Saving start data
-        market_link = (f"https://polymarket.com/event/{slug}")
+        market_link = f"https://polymarket.com/event/{slug}"
         condition_id = market["conditionId"]
         ten_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=10&offset=0"
         five_holders_url = f"https://data-api.polymarket.com/holders?market={condition_id}&limit=5&offset=0"
@@ -271,7 +271,7 @@ for market in event_data[0]["markets"]:
             # Resolution status alert
             if (resolution_status == "proposed" or resolution_status == "disputed") and (resolution_status not in resolution_status_alerted):
                 resolution_status_message = (
-                    f"🚨 ALERT: The market resolution has been {resolution_status}.\nMarket Link: {market_link}"
+                    f"🚨 ALERT: The market resolution has been {resolution_status}."
                 )
                 send_alert(resolution_status_message)
                 print(resolution_status_message)
@@ -303,7 +303,7 @@ for market in event_data[0]["markets"]:
 
                 if yes_price <= stop_loss_threshold and not stop_loss_pinged:
                     stop_loss_message = (
-                        f"🚨 ALERT: The Yes side has dropped to your stop loss threshold SELL NOW: Stop Loss Treshold: {stop_loss_threshold} | Yes Price: ¢{yes_price * 100}\nMarket Link: {market_link}"
+                        f"🚨 ALERT: The Yes side has dropped to your stop loss threshold SELL NOW: Stop Loss Threshold: {stop_loss_threshold} | Yes Price: ¢{yes_price * 100}\nMarket Link: {market_link}"
                     )
                     send_alert(stop_loss_message)
                     stop_loss_pinged = True
@@ -322,7 +322,7 @@ for market in event_data[0]["markets"]:
                     continue
                     # Checks for shift and sends alert
                 if current_price <= (daily_start_price - threshold) or current_price >= (daily_start_price + threshold):
-                    daily_percent_change = (threshold / daily_start_price) * 100
+                    daily_percent_change = ((100 * threshold) / (100 - (100 * threshold))) * 100
                     if current_price >= (daily_start_price + threshold):
                         price_action = "up"
                         price_action_emoji = "📈"
@@ -334,10 +334,11 @@ for market in event_data[0]["markets"]:
                     alert_message = (
                         f"{price_action_emoji} ALERT: The market is {price_action} {price_action_symbol}¢{threshold * 100} ({price_action_symbol}{daily_percent_change:.2f}%) today.")
                     price_message = (
-                        f"📊 The current prices are [Yes_price: ¢{yes_price * 100} | No_price: ¢{no_price * 100}]\nMarket Link: {market_link}")
+                        f"📊 The current prices are [Yes_price: ¢{yes_price * 100} | No_price: ¢{no_price * 100}]")
                     price_alerted.append(threshold)
                     send_alert(alert_message)
                     send_alert(price_message)
+                    daily_start_price = current_price
 
             # Midnight recap call
             date_today = date.today()
@@ -361,10 +362,10 @@ for market in event_data[0]["markets"]:
 
             # End date approaching warning
             days_remaining = (end_date - date_today).days
-            if days_remaining in (7, 3, 1) and days_remaining not in days_till_resolution_alerted:
+            if days_remaining in (8, 4, 3, 2) and days_remaining not in days_till_resolution_alerted:
                 resolution_days_message = (
-                    f"⏳ WARNING: Market resolves in {days_remaining} days.\nMarket Link: {market_link}"
+                    f"⏳ CAUTION: Market resolves {f'in {days_remaining - 1} days' if days_remaining > 2 else 'Tomorrow'}."
                 )
                 send_alert(resolution_days_message)
                 days_till_resolution_alerted.append(days_remaining)
-            time.sleep(90)
+            time.sleep(30)
