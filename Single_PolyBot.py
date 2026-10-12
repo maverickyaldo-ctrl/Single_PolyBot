@@ -29,7 +29,7 @@ buy_price = 0.70
 sell_target = 0.98
 
 # Stop-loss threshold
-stop_loss_threshold = round((buy_price  * 0.70), 4) #Set at 70% of buy price
+stop_loss_threshold = round((buy_price  * 0.5), 4) #Set at 70% of buy price
 print(f"The stop-loss threshold is set to ¢{stop_loss_threshold * 100}")
 
 # Discord functions
@@ -322,7 +322,7 @@ for market in event_data[0]["markets"]:
                     continue
                     # Checks for shift and sends alert
                 if current_price <= (daily_start_price - threshold) or current_price >= (daily_start_price + threshold):
-                    daily_percent_change = ((100 * threshold) / (100 - (100 * threshold))) * 100
+                    daily_percent_change = ((current_price - daily_start_price) / daily_start_price) * 100
                     if current_price >= (daily_start_price + threshold):
                         price_action = "up"
                         price_action_emoji = "📈"
